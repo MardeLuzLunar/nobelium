@@ -6,6 +6,7 @@ on:
       - main  # 每次 push main 分支都会触发部署
 
 env:
+  # Docker 镜像信息
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
@@ -13,9 +14,12 @@ env:
   NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
   NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
 
-  # 项目页必须加 BASE_PATH，保证资源路径正确
+  # 项目页必须配置 BASE_PATH，保证资源路径正确
   BASE_PATH: "/nobelium/"
-  BASE_URL: "https://MardeLuzLunar/.github.io/nobelium/"
+  BASE_URL: "https://MardeLuzLunar.github.io/nobelium/"
+
+  # Pages branch
+  DEPLOY_BRANCH: gh-pages
 
 jobs:
   build-and-deploy:
@@ -24,7 +28,7 @@ jobs:
       # 1️⃣ 拉取代码
       - uses: actions/checkout@v3
 
-      # 2️⃣ 设置 Node.js（Docker 镜像构建需要 Node 环境）
+      # 2️⃣ 设置 Node.js
       - name: Setup Node
         uses: actions/setup-node@v3
         with:
@@ -39,19 +43,29 @@ jobs:
             --build-arg BASE_PATH=${{ env.BASE_PATH }} \
             -t ${{ env.IMAGE_NAME }} .
 
-      # 4️⃣ 推送 Docker 镜像到 GHCR（可选，如果你需要）
+      # 4️⃣ 推送 Docker 镜像到 GHCR（可选）
       - name: Push Docker image
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
           docker push ${{ env.IMAGE_NAME }}
 
-      # 5️⃣ 构建博客静态文件并部署到 GitHub Pages
+      # 5️⃣ 运行 Docker 构建博客并部署到 gh-pages
       - name: Build and Deploy site
         run: |
+          # 如果 gh-pages 不存在则创建
+          if ! git ls-remote --exit-code origin ${{ env.DEPLOY_BRANCH }}; then
+            git checkout --orphan ${{ env.DEPLOY_BRANCH }}
+            git rm -rf .
+            git commit --allow-empty -m "Init gh-pages branch"
+            git push origin ${{ env.DEPLOY_BRANCH }}
+          fi
+
+          # 运行 Docker 构建并部署
           docker run --rm \
             -e NOTION_TOKEN=${{ secrets.NOTION_TOKEN }} \
             -e NOTION_DATABASE_ID=${{ secrets.NOTION_DATABASE_ID }} \
             -e BASE_PATH=${{ env.BASE_PATH }} \
+            -e DEPLOY_BRANCH=${{ env.DEPLOY_BRANCH }} \
             -v ${{ github.workspace }}:/workspace \
             ${{ env.IMAGE_NAME }} \
             sh -c "cd /workspace && npm ci && npm run build && npm run deploy"
